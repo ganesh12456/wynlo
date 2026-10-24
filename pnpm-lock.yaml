@@ -3,7 +3,8 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 importers:
-  .:
+  .: {}
+  web:
     dependencies:
       lucide-react:
         specifier: ^1.31.0

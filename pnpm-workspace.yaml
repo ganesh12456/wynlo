@@ -4,3 +4,5 @@ trustLockfile: false
 strictDepBuilds: true
 allowBuilds:
   sharp: true
+packages:
+- web

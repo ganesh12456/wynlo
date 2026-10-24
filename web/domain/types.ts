@@ -1,36 +1,3 @@
-export type ForecastRecord = {
-    startTime: string;
-    publishTime: string;
-    generation: number;
-};
-export type ActualRecord = ForecastRecord & {
-    fuelType: string;
-};
-export type Snapshot = {
-    meta: {
-        snapshot_id: string;
-        snapshot_built_at: string;
-        counts: Record<string, number>;
-        source_urls: Record<string, string>;
-        source_sha256?: Record<string, string>;
-    };
-    forecasts: ForecastRecord[];
-    actuals: ActualRecord[];
-};
-export type Selection = {
-    value: number | null;
-    publication: string | null;
-    status: string;
-};
-export interface ForecastRepository {
-    select(target: string, cutoff: string): Selection;
-}
-export interface ActualRepository {
-    hour(target: string): {
-        value: number | null;
-        status: string;
-    };
-}
 export type Row = {
     target_start: string;
     forecast_mw: number | null;
@@ -99,6 +66,6 @@ export type Accuracy = {
     }[];
     alignment_note: string;
 };
-export type Metadata = Snapshot['meta'] & {
+export type Metadata = { snapshot_id: string; snapshot_built_at: string; counts: Record<string, number>; source_urls: Record<string, string>; source_sha256?: Record<string, string>;
     alignment_note: string;
 };

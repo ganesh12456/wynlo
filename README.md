@@ -1,67 +1,83 @@
-# Wynlo — Wind Decision Studio
+# Wynlo — dynamic Next.js + Python/FastAPI
 
-A purpose-built UK energy procurement interface for replaying the wind outlook that was available at a historical decision time. This is a working full-stack design implementation, backed by the original frozen Elexon snapshot, rather than fabricated dashboard figures.
+Wynlo reconstructs the wind forecast available at a historical procurement decision time. The application now runs a **React/Next.js frontend** and a **Python/FastAPI backend**. No forecast calculation is performed by a Next.js API handler.
 
-## Experience
+## Static or dynamic?
 
-1. Choose a January 2026 decision date and London cutoff in **Decision workspace**. The outlook covers the following calendar day.
-2. Inspect the hourly forecast, peak and average output. Actual generation is hidden by default.
-3. Use **Publication comparison** to inspect movement between two decision times. It never includes actual generation.
-4. Open the source trace and export each hourly value with its publication time.
-5. Prepare a **Decision brief**, add reviewer context and print or save a PDF through the browser. Source evidence is available as CSV. Notes are held only while the dialog is open; this pilot has no collaboration or persistent notes service.
-6. Use **Performance review** after delivery to inspect MAE, RMSE, signed difference and matched-hour coverage. These are provisional comparisons because source population equivalence is unverified.
+The earlier interface used a prerendered Next.js page with dynamic TypeScript API handlers. This version renders `/` dynamically (`force-dynamic`) and sends browser requests to FastAPI. Python selects publication vintages, aligns actual generation, computes metrics and creates CSV exports on request. API responses carry `X-Wynlo-Backend: python-fastapi` and `Cache-Control: no-store`.
 
-The built-in **Guide** storyboards the workflow for customers and reviewers. See [design storyboard](docs/design-storyboard.md) and [architecture](docs/architecture.md).
+The **data source remains historical**: a frozen January 2026 Elexon snapshot. Dynamic execution does not imply a live data feed. There is no database or durable multi-user state in this pilot; review notes remain transient browser state. No demand, positions, prices or trading actions are included.
 
-## Run and verify
+## Run locally
 
-Install the pinned pnpm version through Corepack, then use the checked-in lockfile:
+Node.js 24 and Python 3.12 are supported.
 
 ```sh
+python -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements-dev.txt
 corepack enable
+corepack prepare pnpm@11.25.0 --activate
 pnpm install --frozen-lockfile
 pnpm dev
-pnpm test
+```
+
+Open `http://127.0.0.1:3000`. Next.js forwards `/api/*` to FastAPI on port 8000 during local development. Interactive API documentation: `http://127.0.0.1:8000/api/docs`.
+
+On Windows, use `.venv\Scripts\python.exe` to install the Python packages. The startup script recognizes that interpreter too. Alternatively, run the two services in separate terminals:
+
+```sh
+python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload
+pnpm --dir web dev
+```
+
+Alternatively, `docker compose up --build` exposes the same Next.js frontend on port 3000 and FastAPI on port 8000.
+
+## Verify
+
+```sh
+PYTHONPATH=backend .venv/bin/python -m pytest -q backend/tests
 pnpm typecheck
+pnpm test:integration
 pnpm build
 ```
 
-Node 22.13+ is required. The production build uses the Next.js App Router on Vercel’s Node.js runtime. No external database, credentials or live Elexon requests are required. API routes run server-side.
+The Python suite verifies publication cutoffs, conflicts, interval completeness, metric parity, frontend API contracts, validation, CSV exports and dependency substitution. The Next.js build identifies `/` as a dynamic server-rendered route. CI tests the Python backend, type-checks/builds Next.js and builds both Docker images.
 
-## Source data and business limits
+## Deployment
 
-- Original snapshot ID: `ca2d9d53a06147b6`.
-- 18,688 WINDFOR forecast records; 1,488 FUELHH WIND half-hours.
-- Decision window: 1–31 January 2026; delivery window: 2 January–1 February.
-- Data imported unchanged from the existing pilot snapshot, with its metadata and SHA-256 source hashes retained.
-- Exact-cutoff publications are included; future publications are excluded.
-- A conflicting latest forecast remains unavailable. There is no fallback to an older or future publication.
-- Actuals require two complete, consistent half-hours. Their mean forms the hourly value.
-- Difference = actual MW − forecast MW. Metrics use matched hours only; coverage uses every expected delivery hour.
-- WINDFOR and FUELHH generation populations may differ. Their equivalence has not been established. These statistics are not validated predictive skill, a calibrated risk band or a purchase recommendation.
-- No demand, contracted position, prices, bids or non-wind generation is included. No trading execution is available.
-- Public Elexon BMRS data: review applicable Elexon data terms before redistribution beyond the pilot.
+`vercel.json` uses **Vercel Services (beta)** to deploy `web/` and `backend/` together. Ordered routes send `/api/*` to FastAPI and all other paths to Next.js. Both services share the deployment origin, so browser requests need no cross-origin configuration or API keys. Source and backend deploy atomically from the same Git commit.
 
-## API
+There are no database credentials or mandatory environment secrets. `FASTAPI_ORIGIN` is optional for local/custom reverse-proxy deployments; Vercel uses service routing. Do not set a preview API hostname in client source code.
 
-| Endpoint | Parameters | Result |
-| --- | --- | --- |
-| `/api/meta` | — | Snapshot metadata, sources, hashes and limitations |
-| `/api/forecast` | `date`, `cutoff`, `actuals=true` (optional) | Hourly decision replay |
-| `/api/comparison` | `date`, `earlier`, `later` | Cutoff comparison without actuals |
-| `/api/accuracy` | `from`, `to`, `cutoff` | Retrospective metrics, daily and hourly summaries |
-| `/api/export` | Replay parameters; or `view=compare`; or `view=accuracy` | Source CSV or daily metric CSV |
+## Experience
 
-Validation returns a clear 422 error. No API has a write or execution action.
+Set a decision date/cutoff → inspect the next-day hourly profile → compare publication times → inspect source timestamps → prepare a brief and download evidence. Use Performance review for a qualified retrospective comparison with actual output. The Guide storyboards the workflow; Data & methodology retains source counts, hashes and limitations.
 
-## Checks
+## Source data and limits
 
-Nine domain tests verify parity against the existing Python implementation for the default replay, cutoff comparison and full-month/hourly metrics; exact-cutoff inclusion; missing/conflicting source handling; complete actuals; default exclusion of actuals; January/date/time bounds; and substituted repository behavior. Browser QA covers replay, chart inspection, source trace, actuals toggle, comparison, brief, guide, performance, methodology and mobile navigation. Temporary responsive fixtures are removed before deployment.
+- Snapshot: `ca2d9d53a06147b6`, with 18,688 WINDFOR records and 1,488 FUELHH WIND half-hours.
+- Decisions: 1–31 January 2026; next-day delivery: 2 January–1 February.
+- Exact-cutoff publications are included; future publications are excluded. A conflicting latest publication remains unavailable.
+- Two complete, consistent half-hours form an hourly actual mean.
+- Difference = actual MW − forecast MW. Metrics use matched hours; coverage includes every expected hour.
+- WINDFOR/FUELHH population equivalence is unverified. Differences are provisional, not validated forecast skill or purchase recommendations.
+- Source: public Elexon BMRS data. Review Elexon’s applicable terms before redistribution beyond the pilot.
 
-The TypeScript model/metadata and real API outputs supply UI values. AI tools assisted implementation and documentation. No operational impact or business performance improvement is claimed.
+## Repository map
 
-## Vercel deployment
+| Path | Responsibility |
+| --- | --- |
+| `web/app/` | Dynamic Next.js page and application layout |
+| `web/components/` | React workspace, charts, source audit, review and dialogs |
+| `web/hooks/`, `web/infrastructure/` | Browser request lifecycle and typed HTTP client |
+| `web/domain/types.ts` | Frontend API contracts only |
+| `backend/app/main.py` | FastAPI routes, validation/error responses, exports and runtime headers |
+| `backend/app/presentation.py` | Maps Python analysis results to the frontend contract |
+| `backend/app/service.py` | Deterministic Python analysis and snapshot repository |
+| `backend/data/` | Original compressed snapshot with provenance |
+| `backend/tests/` | Domain and HTTP contract tests |
+| `scripts/dev.mjs` | Starts both local services |
+| `frontend/` | Retained original Vite reference; not deployed by this configuration |
+| `docs/` | Architecture and business storyboard |
 
-Deploy this branch from the repository root. `vercel.json` selects Next.js and runs the root build. The original Python backend and Vite frontend remain in `backend/` and `frontend/` as the reference implementation; Vercel serves the new root `app/` implementation on this branch.
-
-`next.config.ts` includes `backend/data/snapshot.json.gz` in every API function’s file trace. The server decompresses the original committed snapshot once per runtime instance. No Elexon API key or database is needed. Confirm `/api/meta`, a replay and CSV export on the resulting deployment URL.
+AI tools assisted implementation and documentation. Numeric values are calculated from the actual retained Elexon records; no business performance gains are claimed.

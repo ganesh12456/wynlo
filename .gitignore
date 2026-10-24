@@ -52,3 +52,9 @@ frontend/node_modules/
 frontend/dist/
 backend/app/static/
 brag-output*/
+
+# Nested workspace build output and generated agent guides
+**/node_modules/
+**/.next/
+web/AGENTS.md
+web/CLAUDE.md

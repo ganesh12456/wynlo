@@ -1,31 +1,18 @@
 {
-  "name": "wynlo-decision-studio",
-  "version": "1.0.0",
+  "name": "wynlo-platform",
+  "version": "2.0.0",
   "private": true,
+  "type": "module",
   "engines": {
     "node": "24.x"
   },
   "packageManager": "pnpm@11.25.0",
   "scripts": {
-    "dev": "next dev --hostname 0.0.0.0",
-    "build": "next build --webpack",
-    "start": "next start",
-    "test": "node --experimental-strip-types --test tests/analysis.test.ts",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "next": "16.3.4",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "lucide-react": "^1.31.0"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "4.2.1",
-    "tailwindcss": "4.2.1",
-    "typescript": "5.9.3",
-    "@types/node": "22.19.19",
-    "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3"
-  },
-  "type": "module"
+    "dev": "node scripts/dev.mjs",
+    "build": "pnpm --dir web build",
+    "start": "pnpm --dir web start",
+    "typecheck": "pnpm --dir web typecheck",
+    "test": "python -m pytest -q backend/tests",
+    "test:integration": "node scripts/test-stack.mjs"
+  }
 }

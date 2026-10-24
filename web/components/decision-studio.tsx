@@ -1,11 +1,11 @@
 'use client';
 import { useState } from 'react';
 import { ArrowRight, ArrowUpRight, ArrowLeftRight, ChartNoAxesCombined, Check, ChevronDown, CircleHelp, Database, FileText, LayoutPanelLeft, Menu, ShieldCheck, Wind, X } from 'lucide-react';
-import { Workspace, type Selection } from '../components/workspace';
-import { Accuracy } from '../components/accuracy';
-import { Provenance } from '../components/provenance';
-import { WindArt } from '../components/wind-art';
-import { Modal } from '../components/modal';
+import { Workspace, type Selection } from './workspace';
+import { Accuracy } from './accuracy';
+import { Provenance } from './provenance';
+import { WindArt } from './wind-art';
+import { Modal } from './modal';
 type View = 'workspace' | 'accuracy' | 'provenance';
 export default function Home() {
     const [view, setView] = useState<View>('workspace'), [help, setHelp] = useState(false), [mobile, setMobile] = useState(false), [selection, setSelection] = useState<Selection>({ date: '2026-01-15', cutoff: '09:00' });
