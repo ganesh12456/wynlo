@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .service import ALIGNMENT_NOTE, get_service
 
-app = FastAPI(title="UK Wind Decision Replay", version="1.0.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
+app = FastAPI(title="UK Wind Decision Replay", version="1.1.0", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 
 def guard(action):
@@ -47,6 +47,27 @@ def forecast(decision_date: str, cutoff_local: str = "09:00", include_actuals: b
 @app.get("/api/accuracy")
 def accuracy(decision_from: str, decision_to: str, cutoff_local: str = "09:00"):
     return guard(lambda: get_service().accuracy(decision_from, decision_to, cutoff_local))
+
+
+@app.get("/api/cutoff-impact")
+def cutoff_impact(decision_date: str, earlier_cutoff_local: str = "07:00", later_cutoff_local: str = "09:00"):
+    return guard(lambda: get_service().compare_cutoffs(decision_date, earlier_cutoff_local, later_cutoff_local))
+
+
+@app.get("/api/cutoff-impact/export")
+def cutoff_impact_export(decision_date: str, earlier_cutoff_local: str = "07:00", later_cutoff_local: str = "09:00"):
+    result = guard(lambda: get_service().compare_cutoffs(decision_date, earlier_cutoff_local, later_cutoff_local))
+    buffer = io.StringIO()
+    fields = ["snapshot_id", "decision_date", "delivery_date", "earlier_cutoff_local", "later_cutoff_local",
+              "target_start", "target_local", "earlier_forecast_mw", "later_forecast_mw", "delta_mw",
+              "earlier_publish_time", "later_publish_time", "earlier_status", "later_status", "change_status"]
+    writer = csv.DictWriter(buffer, fieldnames=fields)
+    writer.writeheader()
+    for row in result["rows"]:
+        writer.writerow({key: row.get(key, result.get(key)) for key in fields})
+    buffer.seek(0)
+    return StreamingResponse(iter([buffer.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": 'attachment; filename="wind-cutoff-comparison.csv"'})
 
 
 @app.get("/api/export")

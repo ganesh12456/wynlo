@@ -169,6 +169,72 @@ class ReplayService:
             "rows": rows,
         }
 
+    def compare_cutoffs(self, decision_date: str, earlier_cutoff_local: str = "07:00", later_cutoff_local: str = "09:00") -> dict:
+        """Compare two decision-time profiles without exposing later actuals."""
+        day = parse_decision(decision_date)
+        earlier_time = cutoff_for(day, earlier_cutoff_local)
+        later_time = cutoff_for(day, later_cutoff_local)
+        if earlier_time >= later_time:
+            raise ValueError("earlier_cutoff_local must precede later_cutoff_local")
+
+        earlier = self.replay(decision_date, earlier_cutoff_local)
+        later = self.replay(decision_date, later_cutoff_local)
+        rows = []
+        comparable_changes = []
+        revised = changed = newly_available = became_unavailable = 0
+        for before, after in zip(earlier["rows"], later["rows"], strict=True):
+            old, new = before["forecast_mw"], after["forecast_mw"]
+            delta = new - old if old is not None and new is not None else None
+            vintage_updated = (old is not None and new is not None
+                               and before["publish_time"] != after["publish_time"])
+            if vintage_updated:
+                revised += 1
+            if old is None and new is not None:
+                newly_available += 1
+                change_status = "newly available"
+            elif old is not None and new is None:
+                became_unavailable += 1
+                change_status = "became unavailable"
+            elif old is None:
+                change_status = "unavailable at both cutoffs"
+            else:
+                comparable_changes.append(abs(delta))
+                if delta != 0:
+                    changed += 1
+                change_status = "value changed" if delta != 0 else ("vintage updated" if vintage_updated else "unchanged")
+            rows.append({
+                "target_start": before["target_start"],
+                "target_local": before["target_local"],
+                "earlier_forecast_mw": old,
+                "later_forecast_mw": new,
+                "delta_mw": delta,
+                "earlier_publish_time": before["publish_time"],
+                "later_publish_time": after["publish_time"],
+                "earlier_status": before["status"],
+                "later_status": after["status"],
+                "change_status": change_status,
+            })
+        return {
+            "decision_date": decision_date,
+            "delivery_date": earlier["delivery_date"],
+            "earlier_cutoff_local": earlier_cutoff_local,
+            "later_cutoff_local": later_cutoff_local,
+            "earlier_cutoff_utc": iso(earlier_time),
+            "later_cutoff_utc": iso(later_time),
+            "snapshot_id": self.meta["snapshot_id"],
+            "expected_count": earlier["expected_count"],
+            "earlier_forecast_count": earlier["forecast_count"],
+            "later_forecast_count": later["forecast_count"],
+            "comparable_count": len(comparable_changes),
+            "revised_vintage_count": revised,
+            "value_changed_count": changed,
+            "newly_available_count": newly_available,
+            "became_unavailable_count": became_unavailable,
+            "mean_absolute_change_mw": sum(comparable_changes) / len(comparable_changes) if comparable_changes else None,
+            "max_absolute_change_mw": max(comparable_changes) if comparable_changes else None,
+            "rows": rows,
+        }
+
     def accuracy(self, decision_from: str, decision_to: str, cutoff_local: str = "09:00") -> dict:
         start, end = parse_decision(decision_from), parse_decision(decision_to)
         if end < start:
@@ -195,6 +261,24 @@ class ReplayService:
             current += timedelta(days=1)
         errors = [row["error_mw"] for row in paired_rows if row["error_mw"] is not None]
         count = len(errors)
+        hourly_groups = {hour: {"expected": 0, "forecast": 0, "actual": 0, "errors": []} for hour in range(24)}
+        for row in paired_rows:
+            group = hourly_groups[datetime.fromisoformat(row["target_local"]).hour]
+            group["expected"] += 1
+            group["forecast"] += row["forecast_mw"] is not None
+            group["actual"] += row["actual_mw"] is not None
+            if row["error_mw"] is not None:
+                group["errors"].append(row["error_mw"])
+        hourly = []
+        for hour, group in hourly_groups.items():
+            hour_errors = group["errors"]
+            hourly.append({
+                "hour_local": f"{hour:02d}:00", "expected": group["expected"],
+                "forecast": group["forecast"], "actual": group["actual"],
+                "matched": len(hour_errors),
+                "mae_mw": sum(abs(e) for e in hour_errors) / len(hour_errors) if hour_errors else None,
+                "bias_mw": sum(hour_errors) / len(hour_errors) if hour_errors else None,
+            })
         return {
             "decision_from": start.isoformat(), "decision_to": end.isoformat(),
             "cutoff_local": cutoff_local, "snapshot_id": self.meta["snapshot_id"],
@@ -206,7 +290,7 @@ class ReplayService:
             "mae_mw": sum(abs(e) for e in errors) / count if count else None,
             "rmse_mw": math.sqrt(sum(e * e for e in errors) / count) if count else None,
             "bias_mw": sum(errors) / count if count else None,
-            "daily": daily, "rows": paired_rows,
+            "daily": daily, "hourly": hourly, "rows": paired_rows,
         }
 
 

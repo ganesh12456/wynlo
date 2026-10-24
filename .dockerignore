@@ -3,6 +3,8 @@
 .venv
 frontend/node_modules
 frontend/dist
+backend/app/static
+brag-output*/
 data/raw
 backend/tests
 **/__pycache__

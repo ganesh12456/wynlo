@@ -37,6 +37,8 @@ Open `http://localhost:5173`; Vite proxies `/api` to the Python server. API docu
 2. For each delivery hour on the **next London calendar day**, the API selects the latest WINDFOR `publishTime` **at or before** the chosen decision cutoff. Each target can have a different vintage; the UI warns when this happens. A missing or conflicting latest publication is shown as missing, never silently replaced with future knowledge.
 3. Only on the retrospective view (or after a deliberate toggle) are actuals revealed. Two complete FUELHH half-hours are averaged into a UTC hourly MW value. An incomplete or conflicting pair is excluded from the error metrics.
 4. Error is `actual MW − forecast MW`. MAE is mean absolute error, RMSE is root mean squared error, and signed bias is the mean error. Each metric uses only matched hours; coverage always uses the full expected delivery-hour denominator. The CSV export contains the exact paired rows and their publication timestamps.
+5. **Cutoff comparison** replays one delivery day at two London decision times, showing which hourly forecast values and publication vintages changed. The audit table and CSV include both timestamps, values, and missing/conflicting states. This view never uses later actual generation.
+6. The accuracy view also groups provisional MAE, bias, and coverage by London delivery hour, with an exact 24-hour table. It helps locate time-of-day differences without treating them as a calibrated forecast-risk band.
 
 The 09:00 London default is an **illustrative decision cutoff**, not a claim about a market gate closure. Change it to the team's actual decision time. January 1–31 decisions cover January 2–February 1 delivery. All timestamps have an explicit UTC or Europe/London interpretation.
 
@@ -69,7 +71,7 @@ To fetch fresh copies of the two public Elexon streams and rebuild, run `python 
 | --- | --- |
 | `frontend/src/App.tsx`, `styles.css` | React decision replay, accuracy, source trace and methodology views |
 | `frontend/package.json`, `vite.config.ts` | Vite build and local API proxy |
-| `backend/app/service.py` | Pure cutoff selection, interval alignment and metrics |
+| `backend/app/service.py` | Pure cutoff selection, cutoff comparison, interval alignment and metrics |
 | `backend/app/main.py` | FastAPI endpoints and Docker static app serving |
 | `backend/tests/` | Decision-time, conflict, completeness and API checks |
 | `backend/data/snapshot.json.gz` | Frozen compact API dataset and provenance |
@@ -81,14 +83,14 @@ To fetch fresh copies of the two public Elexon streams and rebuild, run `python 
 
 ## API and checks
 
-Endpoints: `GET /api/meta`, `/api/forecast?decision_date=2026-01-15&cutoff_local=09:00`, `/api/accuracy?decision_from=2026-01-01&decision_to=2026-01-31&cutoff_local=09:00`, `/api/export` with the same range parameters, and `/api/health`. Invalid January dates and cutoffs return 422.
+Endpoints: `GET /api/meta`, `/api/forecast?decision_date=2026-01-15&cutoff_local=09:00`, `/api/cutoff-impact?decision_date=2026-01-15&earlier_cutoff_local=07:00&later_cutoff_local=09:00`, `/api/cutoff-impact/export` with the same comparison parameters, `/api/accuracy?decision_from=2026-01-01&decision_to=2026-01-31&cutoff_local=09:00`, `/api/export` with the same range parameters, and `/api/health`. Invalid January dates, cutoffs, and reversed comparison cutoffs return 422.
 
 ```sh
 PYTHONPATH=backend pytest -q backend/tests
 cd frontend && npm ci && npm run build
 ```
 
-The tests enforce no future-publication leakage, exact cutoff inclusion, missing and conflicting values, interval completeness, January bounds and CSV output. CI additionally builds the Docker image. Docker was not available in the author's current workspace, so its image is gated in GitHub Actions.
+The tests enforce no future-publication leakage, exact cutoff inclusion, missing and conflicting values, cutoff comparison, hourly aggregation, interval completeness, January bounds and both CSV exports. CI additionally builds the Docker image. Docker was not available in the author's current workspace, so its image is gated in GitHub Actions.
 
 ## Deployment and handoff
 

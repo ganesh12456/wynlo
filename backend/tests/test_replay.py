@@ -81,6 +81,45 @@ def test_conflicting_latest_revision_is_not_silently_replaced():
     assert row["status"] == "conflicting latest forecast"
 
 
+def test_cutoff_comparison_traces_revisions_without_future_leakage():
+    first = "2026-01-16T00:00:00Z"
+    second = "2026-01-16T01:00:00Z"
+    third = "2026-01-16T02:00:00Z"
+    service = fixture_service(forecasts=[
+        (first, "2026-01-15T06:30:00Z", 100),
+        (first, "2026-01-15T08:30:00Z", 140),
+        (first, "2026-01-15T09:30:00Z", 999),
+        (second, "2026-01-15T06:30:00Z", 200),
+        (second, "2026-01-15T08:30:00Z", 200),
+        (third, "2026-01-15T08:30:00Z", 300),
+    ])
+    result = service.compare_cutoffs("2026-01-15", "07:00", "09:00")
+    assert result["revised_vintage_count"] == 2
+    assert result["value_changed_count"] == 1
+    assert result["newly_available_count"] == 1
+    assert result["comparable_count"] == 2
+    assert result["mean_absolute_change_mw"] == 20
+    assert result["rows"][0]["delta_mw"] == 40
+    assert result["rows"][0]["later_publish_time"] == "2026-01-15T08:30:00Z"
+    assert result["rows"][1]["change_status"] == "vintage updated"
+    assert result["rows"][2]["change_status"] == "newly available"
+
+
+def test_cutoff_comparison_preserves_conflicts_and_validates_order():
+    target = "2026-01-16T00:00:00Z"
+    service = fixture_service(forecasts=[
+        (target, "2026-01-15T06:30:00Z", 100),
+        (target, "2026-01-15T08:30:00Z", 200),
+        (target, "2026-01-15T08:30:00Z", 300),
+    ])
+    result = service.compare_cutoffs("2026-01-15")
+    assert result["became_unavailable_count"] == 1
+    assert result["rows"][0]["later_status"] == "conflicting latest forecast"
+    assert result["rows"][0]["delta_mw"] is None
+    with pytest.raises(ValueError, match="precede"):
+        service.compare_cutoffs("2026-01-15", "09:00", "07:00")
+
+
 @pytest.mark.parametrize("decision", ["2026-02-01", "2025-12-31", "20260115", "nonsense"])
 def test_out_of_scope_decisions_rejected(decision):
     with pytest.raises(ValueError):
@@ -94,6 +133,9 @@ def test_real_snapshot_has_complete_january_replay_and_no_future_leakage():
     assert result["expected_count"] == 744
     assert result["matched_count"] == 744
     assert result["mae_mw"] > 0
+    assert len(result["hourly"]) == 24
+    assert sum(hour["matched"] for hour in result["hourly"]) == result["matched_count"]
+    assert result["hourly"][0]["hour_local"] == "00:00"
     for row in result["rows"]:
         assert row["publish_time"] is not None
         cutoff = service.replay(row["decision_date"])["cutoff_utc"]
@@ -110,3 +152,14 @@ def test_api_smoke_and_export():
     csv_response = client.get("/api/export", params={"decision_from": "2026-01-15", "decision_to": "2026-01-15"})
     assert csv_response.status_code == 200
     assert len(csv_response.text.splitlines()) == 25
+    compare = client.get("/api/cutoff-impact", params={"decision_date": "2026-01-15"})
+    assert compare.status_code == 200
+    assert compare.json()["expected_count"] == 24
+    assert compare.json()["value_changed_count"] > 0
+    assert client.get("/api/cutoff-impact", params={
+        "decision_date": "2026-01-15", "earlier_cutoff_local": "10:00", "later_cutoff_local": "09:00"
+    }).status_code == 422
+    audit = client.get("/api/cutoff-impact/export", params={"decision_date": "2026-01-15"})
+    assert audit.status_code == 200
+    assert len(audit.text.splitlines()) == 25
+    assert "earlier_publish_time,later_publish_time" in audit.text.splitlines()[0]

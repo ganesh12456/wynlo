@@ -8,3 +8,5 @@ __pycache__/
 .env
 .vercel/
 coverage/
+brag-output*/
+backend/app/static/
